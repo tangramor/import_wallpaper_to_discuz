@@ -2,6 +2,8 @@
 
 LIST=~/list.txt
 TEMP=~/tmp.txt
+TEMP2=/tmp/tmp2.txt
+CONTENT=/tmp/content.txt
 SQLFILE=~/wallpaper.sql
 
 # ===============存储过程===============
@@ -31,26 +33,45 @@ SQLFILE=~/wallpaper.sql
 
 WORKDIR=`pwd`
 cd $WORKDIR
+rm -rf thumbs
+rm -f $SQLFILE
+
 ls > $LIST
+
+mkdir thumbs
 
 while read -r line
 do
-	cd "$WORKDIR/${line// /\\ }"
+	cd "$WORKDIR/$line"
+	
+	rm -f thumb.*
+	
+	echo '<div><center>' > $CONTENT
 	
 	# 将图片文件名导入临时文件
 	ls *.jpg > $TEMP
-	# 第一个文件名
+	
+	# 用第一个图片生成缩略图
 	read file1 < $TEMP
-	# 第二个文件名
-	file2=`sed -n 2p < $TEMP`
+	thumb="thumb.$file1"
+	if [ ! -f "$WORKDIR/thumbs/$thumb" ]; then
+		convert -thumbnail 300x225 "$file1" "$WORKDIR/thumbs/$thumb"
+	fi
+		
+	# 将换行符替换成|，最后会多一个|
+	#temp=$( cat $TEMP | tr '\n' '|' )
+	#pic_list=${temp%%|}
 	
-	# 文件大小
-	size1=$( stat -c %s "$file1" )
-	size2=$( stat -c %s "$file2" )
+	pic_list=""
+	while read pic; do
+		pic_list="${pic}:"$( stat -c %s "${pic}" )"|"$pic_list
+		imgsize=$( identify "$pic" > $TEMP2 && gawk '{print $4}' $TEMP2 | sed "s/+0+0//g")
+		echo '<strong>'${pic/\.jpg/}' - '$imgsize':</strong><p><a href="data/attachment/portal/wallpaper/'$line'/'$pic'" target="_blank"><img src="/data/attachment/portal/wallpaper/'$line'/'$pic'"></a></p>' >> $CONTENT
+	done < $TEMP
 	
-	# 图片长宽，本来字段3就是，但是有的文件名带空格……多于1个空格就不管了
-	imgsize1=$( identify "$file1" > $TEMP && gawk '{print $4}' $TEMP | sed "s/+0+0//g")
-	imgsize2=$( identify "$file2" > $TEMP && gawk '{print $4}' $TEMP | sed "s/+0+0//g" )
+	pic_list=${pic_list%%|}
+	
+	pic_num=$( ls -l *.jpg | wc -l ) # 文件夹里jpg文件数量
 	
 	# 将图片描述txt文件转换为UTF-8编码
 	ls *.txt > $TEMP
@@ -61,10 +82,12 @@ do
 	# 将单引号转义
 	esc_text=$( echo $text | sed "s/'/\\\\'/g" )
 	
-	content='<div><center><strong>'$imgsize1':</strong><p><a href="data/attachment/portal/wallpaper/'$line'/'$file1'" target="_blank"><img src="/data/attachment/portal/wallpaper/'$line'/'$file1'"></a></p><strong>'$imgsize2':</strong><p><a href="data/attachment/portal/wallpaper/'$line'/'$file2'" target="_blank"><img src="/data/attachment/portal/wallpaper/'$line'/'$file2'"></a></p><p>'$esc_text'</p></center></div>'
+	echo '<p>'$esc_text'</p></center></div>' >> $CONTENT
+	
+	content=$( cat $CONTENT )
 	
 	# 将拼凑好的内容写入SQL文件
-	echo "CALL insert_wallpaper('"$line"', '"$file1"', "$size1", '"$file2"', "$size2", '"$content"');" >> $SQLFILE
+	echo "CALL insert_wallpaper(26, 'admin', 98479, 1362640845, '"$line"', '"$thumb"', '"$pic_list"', "$pic_num", '"$content"');" >> $SQLFILE
 	
 done < $LIST
 
